@@ -24,16 +24,24 @@ class Variable:
         funcs = [self.creator]
         while funcs:
             f = funcs.pop()
-            x, y = f.input, f.output
-            x.grad = f.backward(y.grad)
+            gys = [output.grad for output in f.outputs]
+            gxs = f.backward(*gys)
+            if not isinstance(gxs, tuple):
+                gxs = (gxs,)
 
-            if x.creator is not None:
-                funcs.append(x.creator)
+            for x, gx in zip(f.inputs, gxs):
+                x.grad = gx
+
+                if x.creator is not None:
+                    funcs.append(x.creator)
 
 class Function:
-    def __call__(self, inputs):
+    def __call__(self, *inputs):
         xs = [x.data for x in inputs]
-        ys = self.forward(xs)
+        ys = self.forward(*xs)
+        if not isinstance(ys, tuple) :
+            ys = (ys,)
+
         outputs = [Variable(as_array(y)) for y in ys]
 
         for output in outputs:
@@ -41,25 +49,28 @@ class Function:
 
         self.inputs = inputs # 입력 변수를 보관, backward시 필요함
         self.outputs = outputs # 출력 변수 저장
-        return outputs
+        return outputs if len(outputs) > 1 else outputs[0]
 
     def forward(self, x):
         raise NotImplementedError()
 
     def backward(self, gy):
         raise NotImplementedError()
+
 class Add(Function):
-    def forward(self, xs):
-        x0, x1 = xs
+    def forward(self, x0, x1):
         y = x0 + x1
-        return (y,)
+        return y
+
+    def backward(self, gy):
+        return gy, gy
 
 class Square(Function):
     def forward(self, x):
         return x ** 2
 
     def backward(self, gy):
-        x = self.input.data
+        x = self.inputs[0].data
         gx = 2 * x * gy
         return gx
 
@@ -71,6 +82,9 @@ class Exp(Function):
         x = self.input.data
         gx = np.exp(x) * gy
         return gx
+
+def add(x0, x1) :
+    return Add()(x0,x1)
 
 def square(x):
     return Square()(x)
@@ -91,10 +105,13 @@ def numerical_diff(f, x, eps=1e-4):
     return (y1.data - y0.data) / (2 * eps)
 
 
-class SquareTest(unittest.TestCase):
-    def test_forward(self):
-        x = Variable(np.array(2.0))
-        y = square(x)
-        expected = np.array(4.0)
-        self.assertEqual(y.data, expected)
+## Test 부분
+x = Variable(np.array(2.0))
+y = Variable(np.array(3.0))
+x2 = Variable(np.array(4.0))
 
+z = add(square(x), square(y))
+z.backward()
+print(z.data)
+print(x.grad)
+print(y.grad)
